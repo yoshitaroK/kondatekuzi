@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>今夜の献立くじ</title>
+<style>
+  :root {
+    --bg: #EEF2F5;
+    --ink: #1B2E4B;
+    --sub: #5B6B82;
+    --paper: #FFFFFF;
+    --accent: #E3A008;
+    --line: #C9D3DF;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP", serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px 48px;
+  }
+  h1 {
+    font-size: 1.5rem;
+    letter-spacing: 0.2em;
+    margin: 0 0 4px;
+  }
+  .lead { color: var(--sub); margin: 0 0 24px; font-size: 0.95rem; }
+
+  .filters {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+    margin-bottom: 28px; max-width: 520px;
+  }
+  .filters button {
+    font: inherit; font-size: 0.9rem;
+    padding: 6px 14px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .filters button[aria-pressed="true"] {
+    background: var(--ink); color: #fff; border-color: var(--ink);
+  }
+
+  .stage {
+    height: 340px;
+    display: flex; align-items: flex-start; justify-content: center;
+    margin-bottom: 16px;
+  }
+  .slip {
+    width: 112px; height: 320px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-top: 10px solid var(--accent);
+    box-shadow: 0 6px 18px rgba(27,46,75,0.12);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px 0;
+    transform-origin: top center;
+  }
+  .slip .name {
+    writing-mode: vertical-rl;
+    font-size: 2rem;
+    letter-spacing: 0.15em;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  .slip.empty .name { color: var(--sub); font-size: 1.2rem; font-weight: 400; }
+  .slip.drop { animation: drop 0.6s cubic-bezier(.2,.8,.3,1.2); }
+  @keyframes drop {
+    0%   { transform: translateY(-120%) rotate(-4deg); opacity: 0; }
+    70%  { transform: translateY(2%) rotate(1deg); opacity: 1; }
+    100% { transform: translateY(0) rotate(0); }
+  }
+  @media (prefers-reduced-motion: reduce) { .slip.drop { animation: none; } }
+
+  .draw {
+    font: inherit; font-size: 1.15rem; font-weight: 700;
+    letter-spacing: 0.15em;
+    padding: 14px 40px;
+    background: var(--accent); color: var(--ink);
+    border: none; border-radius: 6px;
+    cursor: pointer;
+  }
+  .draw:hover { filter: brightness(0.95); }
+  .draw:focus-visible, .filters button:focus-visible {
+    outline: 3px solid var(--ink); outline-offset: 2px;
+  }
+  .category { color: var(--sub); margin-top: 14px; min-height: 1.4em; font-size: 0.95rem; }
+  .count { color: var(--sub); font-size: 0.8rem; margin-top: 32px; }
+</style>
+</head>
+<body>
+
+<h1>今夜の献立くじ</h1>
+<p class="lead">迷ったら、1枚引いてみましょう。</p>
+
+<div class="filters" id="filters" role="group" aria-label="ジャンルを選ぶ"></div>
+
+<div class="stage">
+  <div class="slip empty" id="slip" aria-live="polite">
+    <span class="name" id="name">くじを引く</span>
+  </div>
+</div>
+
+<button class="draw" id="draw">くじを引く</button>
+<div class="category" id="category"></div>
+<div class="count" id="count"></div>
+
+<script>
+  // ▼ 献立はここで追加・変更できます。
+  //   { name: "料理名", genre: "ジャンル名" } の形で1行ずつ書きます。
+  const MENUS = [
+    { name: "カレーライス", genre: "洋食" },
+    { name: "ハンバーグ", genre: "洋食" },
+    { name: "オムライス", genre: "洋食" },
+    { name: "グラタン", genre: "洋食" },
+    { name: "シチュー", genre: "洋食" },
+    { name: "焼き魚", genre: "和食" },
+    { name: "肉じゃが", genre: "和食" },
+    { name: "親子丼", genre: "和食" },
+    { name: "豚の生姜焼き", genre: "和食" },
+    { name: "天ぷら", genre: "和食" },
+    { name: "麻婆豆腐", genre: "中華" },
+    { name: "餃子", genre: "中華" },
+    { name: "チャーハン", genre: "中華" },
+    { name: "青椒肉絲", genre: "中華" },
+    { name: "うどん", genre: "麺類" },
+    { name: "ラーメン", genre: "麺類" },
+    { name: "ナポリタン", genre: "麺類" },
+    { name: "焼きそば", genre: "麺類" },
+    { name: "すき焼き", genre: "鍋" },
+    { name: "寄せ鍋", genre: "鍋" },
+    { name: "しゃぶしゃぶ", genre: "鍋" }
+  ];
+
+  const ALL = "すべて";
+  const genres = [ALL, ...new Set(MENUS.map(m => m.genre))];
+  let selected = ALL;
+  let lastName = "";
+
+  const filtersEl = document.getElementById("filters");
+  const slipEl = document.getElementById("slip");
+  const nameEl = document.getElementById("name");
+  const categoryEl = document.getElementById("category");
+  const countEl = document.getElementById("count");
+
+  function poolOf(genre) {
+    return genre === ALL ? MENUS : MENUS.filter(m => m.genre === genre);
+  }
+
+  function renderFilters() {
+    filtersEl.innerHTML = "";
+    genres.forEach(g => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = g;
+      b.setAttribute("aria-pressed", g === selected ? "true" : "false");
+      b.addEventListener("click", () => {
+        selected = g;
+        renderFilters();
+        updateCount();
+      });
+      filtersEl.appendChild(b);
+    });
+  }
+
+  function updateCount() {
+    countEl.textContent = "くじの中身:" + poolOf(selected).length + "品";
+  }
+
+  function draw() {
+    let pool = poolOf(selected);
+    // 2回続けて同じ料理にならないようにする
+    if (pool.length > 1) pool = pool.filter(m => m.name !== lastName);
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    lastName = pick.name;
+
+    nameEl.textContent = pick.name;
+    categoryEl.textContent = pick.genre;
+    slipEl.classList.remove("empty", "drop");
+    void slipEl.offsetWidth; // アニメーションをもう一度動かすための記述
+    slipEl.classList.add("drop");
+  }
+
+  document.getElementById("draw").addEventListener("click", draw);
+  renderFilters();
+  updateCount();
+</script>
+</body>
+</html>
